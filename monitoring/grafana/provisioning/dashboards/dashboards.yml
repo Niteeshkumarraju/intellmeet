@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'IntellMeet Dashboards'
+    orgId: 1
+    folder: 'IntellMeet'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

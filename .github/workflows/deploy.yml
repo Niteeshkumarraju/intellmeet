@@ -1,0 +1,62 @@
+name: Deploy — Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Build & push Docker images ──────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & push server image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./server
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/intellmeet-server:latest,${{ secrets.DOCKERHUB_USERNAME }}/intellmeet-server:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push client image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./client
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/intellmeet-client:latest,${{ secrets.DOCKERHUB_USERNAME }}/intellmeet-client:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Deploy via SSH ───────────────────────────────────────────────────
+      # Uncomment and configure when your server is ready:
+      # - name: Deploy via SSH
+      #   uses: appleboy/ssh-action@v1.0.0
+      #   with:
+      #     host: ${{ secrets.SERVER_HOST }}
+      #     username: ${{ secrets.SERVER_USER }}
+      #     key: ${{ secrets.SSH_PRIVATE_KEY }}
+      #     script: |
+      #       cd /opt/intellmeet
+      #       docker-compose pull
+      #       docker-compose up -d --remove-orphans
+      #       docker image prune -f
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Images pushed successfully!"
+          echo "Server: ${{ secrets.DOCKERHUB_USERNAME }}/intellmeet-server:${{ github.sha }}"
+          echo "Client: ${{ secrets.DOCKERHUB_USERNAME }}/intellmeet-client:${{ github.sha }}"

@@ -1,0 +1,62 @@
+name: CI — Build & Lint
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Server ─────────────────────────────────────────────────────────────────
+  server-checks:
+    name: Server — Install & Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Security audit
+        run: npm audit --audit-level=high || true
+
+  # ── Client ─────────────────────────────────────────────────────────────────
+  client-checks:
+    name: Client — Build & Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint || true
+      - name: Build (production)
+        run: npm run build
+        env:
+          VITE_API_URL: http://localhost:5000
+
+  # ── Docker build test ──────────────────────────────────────────────────────
+  docker-build:
+    name: Docker — Build images
+    runs-on: ubuntu-latest
+    needs: [server-checks, client-checks]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build server image
+        run: docker build ./server -t intellmeet-server:ci
+      - name: Build client image
+        run: docker build ./client -t intellmeet-client:ci

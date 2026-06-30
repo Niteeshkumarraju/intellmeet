@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-server
+spec:
+  replicas: {{ .Values.replicaCount.server }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-server
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-server
+    spec:
+      containers:
+        - name: server
+          image: "{{ .Values.image.server.repository }}:{{ .Values.image.server.tag }}"
+          imagePullPolicy: {{ .Values.image.server.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.server.port }}
+          env:
+            - name: PORT
+              value: "{{ .Values.service.server.port }}"
+            - name: MONGODB_URI
+              value: "{{ .Values.mongodb.uri }}"
+            - name: REDIS_URL
+              value: "{{ .Values.redis.url }}"
+            - name: NODE_ENV
+              value: "production"
+            - name: CLIENT_URL
+              value: "http://client"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server
+spec:
+  type: {{ .Values.service.server.type }}
+  ports:
+    - port: {{ .Values.service.server.port }}
+      targetPort: {{ .Values.service.server.port }}
+  selector:
+    app: {{ .Release.Name }}-server

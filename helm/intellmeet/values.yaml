@@ -1,0 +1,63 @@
+# Default values for intellmeet chart.
+
+replicaCount:
+  client: 2
+  server: 2
+
+image:
+  client:
+    repository: intellmeet-client
+    tag: latest
+    pullPolicy: IfNotPresent
+  server:
+    repository: intellmeet-server
+    tag: latest
+    pullPolicy: IfNotPresent
+  mongo:
+    repository: mongo
+    tag: 7
+    pullPolicy: IfNotPresent
+  redis:
+    repository: redis
+    tag: 7-alpine
+    pullPolicy: IfNotPresent
+
+service:
+  client:
+    type: ClusterIP
+    port: 80
+  server:
+    type: ClusterIP
+    port: 5000
+  mongo:
+    type: ClusterIP
+    port: 27017
+  redis:
+    type: ClusterIP
+    port: 6379
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+  hosts:
+    - host: intellmeet.local
+      paths:
+        - path: /api(/|$)(.*)
+          pathType: Prefix
+          backend: server
+        - path: /?(.*)
+          pathType: Prefix
+          backend: client
+
+mongodb:
+  uri: "mongodb://mongo:27017/intellmeet"
+
+redis:
+  url: "redis://redis:6379"
+
+persistence:
+  mongo:
+    size: 5Gi

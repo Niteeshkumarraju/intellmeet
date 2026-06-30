@@ -1,0 +1,6 @@
+apiVersion: v2
+name: intellmeet
+description: A Helm chart for deploying IntellMeet video conferencing and Kanban collaboration platform.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
