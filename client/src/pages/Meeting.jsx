@@ -53,6 +53,7 @@ export default function Meeting() {
   const [remoteStreams, setRemoteStreams] = useState({})
   const peerConnectionsRef = useRef({})  // socketId -> RTCPeerConnection
   const remoteStreamsRef   = useRef({})  // socketId -> { stream, name, userId }
+  const pendingCandidatesRef = useRef({}) // socketId -> RTCIceCandidate[]
 
   // Recording states
   const [isRecording, setIsRecording] = useState(false)
@@ -95,6 +96,7 @@ export default function Meeting() {
       return peerConnectionsRef.current[socketId]
     }
     const pc = new RTCPeerConnection(STUN_SERVERS)
+    pendingCandidatesRef.current[socketId] = []
 
     // Add local tracks to peer connection
     if (streamRef.current) {
@@ -131,12 +133,28 @@ export default function Meeting() {
     return pc
   }
 
+  const processQueuedCandidates = async (socketId) => {
+    const pc = peerConnectionsRef.current[socketId]
+    const candidates = pendingCandidatesRef.current[socketId]
+    if (pc && candidates && candidates.length > 0) {
+      for (const candidate of candidates) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate))
+        } catch (err) {
+          console.error('[WebRTC] Failed to add queued ICE candidate:', err)
+        }
+      }
+      pendingCandidatesRef.current[socketId] = []
+    }
+  }
+
   const removePeer = (socketId) => {
     if (peerConnectionsRef.current[socketId]) {
       peerConnectionsRef.current[socketId].close()
       delete peerConnectionsRef.current[socketId]
     }
     delete remoteStreamsRef.current[socketId]
+    delete pendingCandidatesRef.current[socketId]
     setRemoteStreams(prev => {
       const next = { ...prev }
       delete next[socketId]
@@ -420,12 +438,11 @@ export default function Meeting() {
   }, [showWhiteboard, pinnedId])
 
   useEffect(() => {
-  fetchMeeting()
-  fetchMessages()
-  setupSocket()
-  timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
-  return () => { cleanup(); clearInterval(timerRef.current) }
-}, [id])
+    fetchMeeting()
+    fetchMessages()
+    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
+    return () => { cleanup(); clearInterval(timerRef.current) }
+  }, [id])
 
   // Auto-end meeting after 3 hours — warn at 2h 50m
   const MAX_MEETING_SECONDS = 3 * 60 * 60      // 3 hours
@@ -488,7 +505,12 @@ export default function Meeting() {
         const seededElapsed = Math.floor((Date.now() - new Date(data.startTime).getTime()) / 1000)
         setElapsed(seededElapsed > 0 ? seededElapsed : 0)
       }
-      startVideo()
+      if (!streamRef.current) {
+        await startVideo()
+      }
+      if (!socketRef.current) {
+        setupSocket()
+      }
     }
     if (data.status === 'ended') {
       if (timerRef.current) {
@@ -639,7 +661,10 @@ export default function Meeting() {
       streamRef.current = stream
       if (localVideoRef.current) localVideoRef.current.srcObject = stream
       setupAudioDetection(stream)
-    } catch { toast.error('Camera/mic access denied') }
+    } catch (err) {
+      console.error('Camera/mic access denied:', err)
+      toast.error('Camera/mic access denied. Joining without audio/video.')
+    }
   }
 
   const setupAudioDetection = (stream) => {
@@ -711,6 +736,7 @@ export default function Meeting() {
           from: socketRef.current.id,
           answer,
         })
+        await processQueuedCandidates(from)
       } catch (err) {
         console.error('[WebRTC] Failed to handle offer:', err)
       }
@@ -720,7 +746,10 @@ export default function Meeting() {
     socketRef.current.on('webrtc-answer', async ({ from, answer }) => {
       try {
         const pc = peerConnectionsRef.current[from]
-        if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer))
+        if (pc) {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer))
+          await processQueuedCandidates(from)
+        }
       } catch (err) {
         console.error('[WebRTC] Failed to handle answer:', err)
       }
@@ -730,7 +759,16 @@ export default function Meeting() {
     socketRef.current.on('webrtc-ice-candidate', async ({ from, candidate }) => {
       try {
         const pc = peerConnectionsRef.current[from]
-        if (pc && candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate))
+        if (pc) {
+          if (pc.remoteDescription && pc.remoteDescription.type) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate))
+          } else {
+            if (!pendingCandidatesRef.current[from]) {
+              pendingCandidatesRef.current[from] = []
+            }
+            pendingCandidatesRef.current[from].push(candidate)
+          }
+        }
       } catch (err) {
         console.error('[WebRTC] ICE candidate error:', err)
       }
@@ -837,91 +875,26 @@ export default function Meeting() {
     cleanupAllPeers()
   }
 
-  const toggleMute = async () => {
-    if (isMuted) {
-      try {
-        const newStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const newTrack = newStream.getAudioTracks()[0]
-        
-        if (streamRef.current) {
-          streamRef.current.getAudioTracks().forEach(t => {
-            t.stop()
-            streamRef.current.removeTrack(t)
-          })
-          streamRef.current.addTrack(newTrack)
-        } else {
-          streamRef.current = newStream
-        }
-        
-        setIsMuted(false)
-        setupAudioDetection(streamRef.current)
-        toast.success('Microphone turned ON')
-      } catch (err) {
-        console.error('Failed to access microphone', err)
-        toast.error('Failed to access microphone')
-      }
-    } else {
-      if (streamRef.current) {
-        streamRef.current.getAudioTracks().forEach(t => {
-          t.stop()
-          streamRef.current.removeTrack(t)
-        })
-      }
-      if (isTranscribing && recognitionRef.current) {
-        try { recognitionRef.current.stop() } catch {}
-        setIsTranscribing(false)
-      }
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        try { await audioContextRef.current.close(); audioContextRef.current = null; } catch {}
-      }
-      analyserRef.current = null
-      setIsMuted(true)
-      toast.success('Microphone turned OFF')
+  const toggleMute = () => {
+    const nextMuted = !isMuted
+    setIsMuted(nextMuted)
+    if (streamRef.current) {
+      streamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = !nextMuted
+      })
     }
+    toast.success(nextMuted ? 'Microphone turned OFF' : 'Microphone turned ON')
   }
 
-  const toggleVideo = async () => {
-    if (isVideoOff) {
-      // Camera is OFF — turn it ON: request fresh camera stream
-      try {
-        const newStream = await navigator.mediaDevices.getUserMedia({ video: true })
-        const newVideoTrack = newStream.getVideoTracks()[0]
-
-        if (streamRef.current) {
-          // Remove any stale video tracks first
-          streamRef.current.getVideoTracks().forEach(t => {
-            t.stop()
-            streamRef.current.removeTrack(t)
-          })
-          streamRef.current.addTrack(newVideoTrack)
-        } else {
-          streamRef.current = newStream
-        }
-
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = streamRef.current
-        }
-        setIsVideoOff(false)
-        toast.success('Camera turned ON')
-      } catch (err) {
-        console.error('Failed to access camera', err)
-        toast.error('Failed to access camera')
-      }
-    } else {
-      // Camera is ON — turn it OFF: stop all video tracks to release hardware
-      if (streamRef.current) {
-        streamRef.current.getVideoTracks().forEach(t => {
-          t.stop()               // releases the OS camera indicator light
-          streamRef.current.removeTrack(t)
-        })
-      }
-      // Detach from video element so the black frame / avatar shows
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = null
-      }
-      setIsVideoOff(true)
-      toast.success('Camera turned OFF')
+  const toggleVideo = () => {
+    const nextVideoOff = !isVideoOff
+    setIsVideoOff(nextVideoOff)
+    if (streamRef.current) {
+      streamRef.current.getVideoTracks().forEach(track => {
+        track.enabled = !nextVideoOff
+      })
     }
+    toast.success(nextVideoOff ? 'Camera turned OFF' : 'Camera turned ON')
   }
 
   const toggleScreenShare = async () => {

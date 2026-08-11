@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useGoogleLogin } from '@react-oauth/google'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import useAuthStore from '../store/authStore'
@@ -17,6 +17,8 @@ export default function Signup() {
   
   const { setAuth } = useAuthStore()
   const navigate = useNavigate()
+  const location = useLocation()
+  const from = location.state?.from?.pathname || '/dashboard'
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
@@ -33,7 +35,7 @@ export default function Signup() {
         const { accessToken, refreshToken, user } = res.data;
         setAuth(user, accessToken, refreshToken);
         toast.success(`Welcome ${user.name}!`);
-        navigate('/dashboard');
+        navigate(from, { replace: true });
       } catch (err) {
         console.error('Google signup error:', err);
         toast.error('Google signup failed');
@@ -78,7 +80,7 @@ export default function Signup() {
       })
       setAuth(data.user, data.accessToken, data.refreshToken)
       toast.success('Account created!')
-      navigate('/dashboard')
+      navigate(from, { replace: true })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Signup failed')
     } finally {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useGoogleLogin } from '@react-oauth/google'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import useAuthStore from '../store/authStore'
@@ -15,6 +15,8 @@ export default function Login() {
 
   const { setAuth } = useAuthStore()
   const navigate = useNavigate()
+  const location = useLocation()
+  const from = location.state?.from?.pathname || '/dashboard'
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
@@ -31,7 +33,7 @@ export default function Login() {
         const { accessToken, refreshToken, user } = res.data;
         setAuth(user, accessToken, refreshToken);
         toast.success(`Welcome ${user.name}!`);
-        navigate('/dashboard');
+        navigate(from, { replace: true });
       } catch (err) {
         console.error('Google login error:', err);
         toast.error('Google login failed');
@@ -52,7 +54,7 @@ export default function Login() {
       const { data } = await axios.post('/api/auth/login', form)
       setAuth(data.user, data.accessToken, data.refreshToken)
       toast.success('Welcome back!')
-      navigate('/dashboard')
+      navigate(from, { replace: true })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Login failed')
     } finally {
@@ -71,7 +73,7 @@ export default function Login() {
       })
       setAuth(data.user, data.accessToken, data.refreshToken)
       toast.success('Email verified successfully! Welcome back!')
-      navigate('/dashboard')
+      navigate(from, { replace: true })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Verification failed')
     } finally {
