@@ -89,7 +89,7 @@ export default function Signup() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="auth-container" style={{ display: 'flex', minHeight: '100vh', fontFamily: "'DM Sans', sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -109,6 +109,18 @@ export default function Signup() {
         .video-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
         .video-tile { background: linear-gradient(135deg, #1e293b, #334155); border-radius: 10px; height: 65px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
         .ai-badge { background: linear-gradient(135deg, #4f46e5, #7c3aed); border-radius: 8px; padding: 8px 12px; font-size: 11px; color: white; }
+        @media (max-width: 800px) {
+          .auth-container {
+            flex-direction: column !important;
+          }
+          .left-panel {
+            display: none !important;
+          }
+          .right-panel {
+            width: 100% !important;
+            padding: 40px 24px !important;
+          }
+        }
       `}</style>
 
       {/* LEFT PANEL */}
@@ -188,7 +200,7 @@ export default function Signup() {
       </div>
 
       {/* RIGHT PANEL */}
-      <div style={{ width: '520px', background: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '48px', overflowY: 'auto' }}>
+      <div className="right-panel" style={{ width: '520px', background: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '48px', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 32 }}>
           <span style={{ color: '#6b7280', fontSize: 14 }}>Already have an account? <Link to="/login" style={{ color: '#4f46e5', fontWeight: 600, textDecoration: 'none' }}>Sign in</Link></span>
         </div>

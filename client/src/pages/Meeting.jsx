@@ -1390,12 +1390,82 @@ export default function Meeting() {
         .floating-reaction{position:fixed;bottom:140px;left:50%;transform:translateX(-50%);font-size:48px;animation:floatUp 2.5s ease forwards;pointer-events:none;z-index:999;}
         @keyframes speakingPulse{0%,100%{opacity:1}50%{opacity:0.5}}
         .speaking-dot{animation:speakingPulse 0.8s ease infinite;}
+        .meeting-topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .meeting-topbar-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .meeting-content-layout {
+          flex: 1;
+          display: flex;
+          overflow: hidden;
+        }
+        .meeting-sidebar {
+          width: 360px;
+          background: #111827;
+          border-left: 1px solid rgba(255,255,255,0.07);
+          display: flex;
+          flex-direction: column;
+          flex-shrink: 0;
+          z-index: 10;
+        }
+        .meeting-bottom-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .meeting-bottom-controls {
+          display: flex;
+          gap: 2px;
+        }
+        @media (max-width: 768px) {
+          .meeting-topbar {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
+            padding: 12px 16px !important;
+          }
+          .meeting-topbar-actions {
+            width: 100% !important;
+            justify-content: space-between !important;
+            flex-wrap: wrap !important;
+          }
+          .meeting-content-layout {
+            flex-direction: column !important;
+            overflow-y: auto !important;
+          }
+          .meeting-sidebar {
+            width: 100% !important;
+            height: 420px !important;
+            border-left: none !important;
+            border-top: 1px solid rgba(255,255,255,0.07) !important;
+          }
+          .meeting-bottom-bar {
+            flex-direction: column !important;
+            gap: 12px !important;
+            padding: 12px 16px !important;
+          }
+          .meeting-bottom-controls {
+            width: 100% !important;
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+            gap: 6px !important;
+          }
+          .video-grid-mobile {
+            grid-template-columns: 1fr !important;
+          }
+        }
       `}</style>
 
       {floatingReaction && <div className="floating-reaction">{floatingReaction}</div>}
 
       {/* TOP BAR */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 20px', background:'#111827', borderBottom:'1px solid rgba(255,255,255,0.07)', flexShrink:0 }}>
+      <div className="meeting-topbar" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 20px', background:'#111827', borderBottom:'1px solid rgba(255,255,255,0.07)', flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:14 }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer' }} onClick={() => navigate('/dashboard')}>
             <div style={{ width:32, height:32, background:'linear-gradient(135deg,#4f46e5,#7c3aed)', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>🤖</div>
@@ -1447,7 +1517,7 @@ export default function Meeting() {
         <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(16,185,129,0.1)', border:'1px solid rgba(16,185,129,0.2)', borderRadius:20, padding:'4px 12px', fontSize:12, color:'#4ade80' }}>
           🛡️ End-to-end Encrypted
         </div>
-        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+        <div className="meeting-topbar-actions" style={{ display:'flex', gap:8, alignItems:'center' }}>
           <button className="top-btn" style={{ background:'rgba(99,102,241,0.15)', borderColor:'rgba(99,102,241,0.3)', color:'#818cf8' }} onClick={generateAISummary} disabled={aiLoading}>
             ✨ {aiLoading?'Generating...':'AI Assistant'}
           </button>
@@ -1462,7 +1532,7 @@ export default function Meeting() {
       </div>
 
       {/* CONTENT */}
-      <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
+      <div className="meeting-content-layout" style={{ flex:1, display:'flex', overflow:'hidden' }}>
 
         {/* VIDEO AREA */}
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#0d1117' }}>
@@ -1754,7 +1824,7 @@ export default function Meeting() {
         </div>
 
         {/* RIGHT PANEL */}
-        <div style={{ width:360, background:'#111827', borderLeft:'1px solid rgba(255,255,255,0.07)', display:'flex', flexDirection:'column', flexShrink:0 }}>
+        <div className="meeting-sidebar" style={{ width:360, background:'#111827', borderLeft:'1px solid rgba(255,255,255,0.07)', display:'flex', flexDirection:'column', flexShrink:0 }}>
           <div style={{ display:'flex', padding:'0 4px', borderBottom:'1px solid rgba(255,255,255,0.07)', gap:0 }}>
             {['AI Notes','Chat','Participants', meeting?.team && 'Tasks'].filter(Boolean).map(tab => (
               <button key={tab} className={`tab-btn ${activeTab===tab?'active':''}`} onClick={() => setActiveTab(tab)}>
@@ -2125,8 +2195,8 @@ export default function Meeting() {
       </div>
 
       {/* BOTTOM CONTROLS */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 28px', background:'#111827', borderTop:'1px solid rgba(255,255,255,0.07)', flexShrink:0, position:'relative' }}>
-        <div style={{ display:'flex', gap:2 }}>
+      <div className="meeting-bottom-bar" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 28px', background:'#111827', borderTop:'1px solid rgba(255,255,255,0.07)', flexShrink:0, position:'relative' }}>
+        <div className="meeting-bottom-controls" style={{ display:'flex', gap:2 }}>
           <button className={`ctrl-btn ${isMuted?'off':'on'}`} onClick={toggleMute}>
             <span className="ctrl-icon">{isMuted?'🔇':'🎤'}</span>
             {isMuted?'Unmute':'Mic'}

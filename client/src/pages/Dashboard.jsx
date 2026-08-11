@@ -6,6 +6,7 @@ import useAuthStore from '../store/authStore'
 import { useCallback } from 'react'
 
 export default function Dashboard() {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [meetings, setMeetings] = useState([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -651,7 +652,7 @@ export default function Dashboard() {
         return (
           <>
             {/* Stats */}
-            <div style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
+            <div className="stat-cards-container" style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
               {[
                 { icon: <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>, value: meetings.length, label: 'Total Meetings', sub: `${activeMeetings} active now`, subColor: '#10b981', iconBg: '#1e3a5f' },
                 { icon: <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>, value: totalActionItems, label: 'Action Items', sub: totalActionItems === 0 ? 'All caught up!' : `${completedActionItems} completed`, subColor: '#10b981', iconBg: '#1a3a2a' },
@@ -671,7 +672,7 @@ export default function Dashboard() {
               ))}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
+            <div className="dashboard-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 {/* Meetings */}
                 <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '20px 24px' }}>
@@ -937,10 +938,85 @@ export default function Dashboard() {
         .label { display: block; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.6); margin-bottom: 6px; }
         .logout-btn { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 10px; cursor: pointer; color: rgba(255,100,100,0.7); font-size: 14px; font-weight: 500; transition: all 0.2s; border: none; background: transparent; width: 100%; font-family: 'Plus Jakarta Sans'; }
         .logout-btn:hover { background: rgba(255,100,100,0.1); color: #f87171; }
+        .sidebar-mobile {
+          left: 0;
+          transition: left 0.3s ease;
+        }
+        .main-content-mobile {
+          margin-left: 240px;
+          transition: margin-left 0.3s ease;
+        }
+        .stat-cards-container {
+          display: flex;
+          gap: 16px;
+          margin-bottom: 28px;
+        }
+        .dashboard-grid {
+          display: grid;
+          grid-template-columns: 1fr 320px;
+          gap: 20px;
+        }
+        .dashboard-topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .dashboard-topbar-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        @media (max-width: 768px) {
+          .sidebar-mobile {
+            left: -240px !important;
+            box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+            background: #0d1533 !important;
+          }
+          .sidebar-mobile.open {
+            left: 0 !important;
+          }
+          .main-content-mobile {
+            margin-left: 0 !important;
+          }
+          .stat-cards-container {
+            flex-direction: column !important;
+          }
+          .dashboard-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .menu-toggle {
+            display: block !important;
+          }
+          .dashboard-topbar {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+            padding: 16px 20px !important;
+          }
+          .dashboard-topbar > div {
+            width: 100% !important;
+          }
+          .dashboard-topbar-actions {
+            width: 100% !important;
+            justify-content: space-between !important;
+          }
+          .search-bar {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+        }
       `}</style>
 
+      {/* SIDEBAR OVERLAY FOR MOBILE */}
+      {sidebarOpen && (
+        <div 
+          onClick={() => setSidebarOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9, backdropFilter: 'blur(2px)' }} 
+        />
+      )}
+
       {/* SIDEBAR */}
-      <div style={{ width: 240, background: 'rgba(255,255,255,0.03)', borderRight: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', padding: '24px 16px', position: 'fixed', height: '100vh', zIndex: 10, overflowY: 'auto' }}>
+      <div className={`sidebar-mobile ${sidebarOpen ? 'open' : ''}`} style={{ width: 240, background: 'rgba(255,255,255,0.03)', borderRight: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', padding: '24px 16px', position: 'fixed', height: '100vh', zIndex: 10, overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32, paddingLeft: 8 }}>
           <div style={{ width: 40, height: 40, background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
@@ -976,6 +1052,7 @@ export default function Dashboard() {
                     localStorage.setItem('intellmeet_seen_action_items', String(totalActionItems))
                   }
                 }
+                setSidebarOpen(false)
               }}>
               <span style={{ display: 'flex', alignItems: 'center' }}>{item.icon}</span>
               <span style={{ marginLeft: 8 }}>{item.label}</span>
@@ -1006,14 +1083,23 @@ export default function Dashboard() {
       </div>
 
       {/* MAIN */}
-      <div style={{ marginLeft: 240, flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div className="main-content-mobile" style={{ marginLeft: 240, flex: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Topbar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 32px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(10,15,30,0.9)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 5 }}>
-          <div>
-            <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: 24, fontWeight: 800 }}>{getGreeting()}, {user?.name?.split(' ')[0]}!</h1>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 2 }}>Here's what's happening with your meetings today.</p>
-          </div>
+        <div className="dashboard-topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 32px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(10,15,30,0.9)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 5 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button 
+              className="menu-toggle" 
+              onClick={() => setSidebarOpen(true)}
+              style={{ display: 'none', background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: 4, marginRight: 4 }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <div>
+              <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: 24, fontWeight: 800 }}>{getGreeting()}, {user?.name?.split(' ')[0]}!</h1>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 2 }}>Here's what's happening with your meetings today.</p>
+            </div>
+          </div>
+          <div className="dashboard-topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)', display:'flex', alignItems:'center' }}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg></span>
               <input className="search-bar" placeholder="Search meetings..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />

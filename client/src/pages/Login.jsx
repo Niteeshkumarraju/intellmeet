@@ -93,7 +93,7 @@ export default function Login() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="auth-container" style={{ display: 'flex', minHeight: '100vh', fontFamily: "'DM Sans', sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -116,6 +116,18 @@ export default function Login() {
         .video-tile { background: linear-gradient(135deg, #1e293b, #334155); border-radius: 10px; height: 70px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
         .ai-badge { background: linear-gradient(135deg, #4f46e5, #7c3aed); border-radius: 8px; padding: 8px 12px; font-size: 11px; color: white; }
         .trust-badge { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 6px 14px; font-size: 13px; color: rgba(255,255,255,0.8); }
+        @media (max-width: 800px) {
+          .auth-container {
+            flex-direction: column !important;
+          }
+          .left-panel {
+            display: none !important;
+          }
+          .right-panel {
+            width: 100% !important;
+            padding: 40px 24px !important;
+          }
+        }
       `}</style>
 
       {/* LEFT PANEL */}
@@ -200,7 +212,7 @@ export default function Login() {
       </div>
 
       {/* RIGHT PANEL */}
-      <div style={{ width: '480px', background: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '60px 48px' }}>
+      <div className="right-panel" style={{ width: '480px', background: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '60px 48px' }}>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 28, fontWeight: 800, color: '#111', marginBottom: 8 }}>Welcome back 👋</h2>
           <p style={{ color: '#6b7280', fontSize: 15 }}>Sign in to your IntellMeet account</p>
