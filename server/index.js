@@ -110,16 +110,57 @@ app.use((err, req, res, next) => {
 // ── Socket.io ─────────────────────────────────────────────────────────────
 // Track which meeting each socket is in (for WebRTC cleanup on disconnect)
 const socketMeetingMap = new Map();
+// meetingId -> Map<socketId, { socketId, userId, userName }>
+const meetingActiveUsers = new Map();
+
+function broadcastActiveParticipants(meetingId) {
+  const room = meetingActiveUsers.get(meetingId);
+  const list = room ? Array.from(room.values()) : [];
+  io.to(meetingId).emit('active-participants', list);
+}
+
+function removeActiveUser(socketId) {
+  const meetingId = socketMeetingMap.get(socketId);
+  if (!meetingId) return null;
+  const room = meetingActiveUsers.get(meetingId);
+  let removedUser = null;
+  if (room) {
+    removedUser = room.get(socketId) || null;
+    room.delete(socketId);
+    if (room.size === 0) {
+      meetingActiveUsers.delete(meetingId);
+    }
+  }
+  broadcastActiveParticipants(meetingId);
+  return { meetingId, removedUser };
+}
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
   // ── Meeting room ─────────────────────────────────────────────
-  socket.on('join-meeting', (meetingId) => {
+  socket.on('join-meeting', (data) => {
+    const meetingId = typeof data === 'object' ? data.meetingId : data;
+    const userId = typeof data === 'object' ? data.userId : null;
+    const userName = typeof data === 'object' ? data.userName : null;
+
     socket.join(meetingId);
     socketMeetingMap.set(socket.id, meetingId);
-    socket.to(meetingId).emit('user-joined', socket.id);
-    console.log(`User ${socket.id} joined meeting ${meetingId}`);
+
+    if (!meetingActiveUsers.has(meetingId)) {
+      meetingActiveUsers.set(meetingId, new Map());
+    }
+    if (userId && userName) {
+      meetingActiveUsers.get(meetingId).set(socket.id, {
+        socketId: socket.id,
+        userId,
+        userName,
+      });
+    }
+
+    socket.to(meetingId).emit('user-joined', { socketId: socket.id, userId, userName });
+    broadcastActiveParticipants(meetingId);
+    console.log(`User ${socket.id} (${userName || 'unknown'}) joined meeting ${meetingId}`);
   });
 
   socket.on('send-message', (data) => {
@@ -151,22 +192,35 @@ io.on('connection', (socket) => {
   });
 
   socket.on('leave-meeting', (meetingId) => {
+    const info = removeActiveUser(socket.id);
     socket.leave(meetingId);
     socketMeetingMap.delete(socket.id);
-    // Notify remaining peers so they can close the WebRTC connection
-    socket.to(meetingId).emit('user-left', socket.id);
-    socket.to(meetingId).emit('webrtc-peer-left', { socketId: socket.id });
+    const leaverName = info?.removedUser?.userName;
+    const leaverUserId = info?.removedUser?.userId;
+    socket.to(meetingId).emit('user-left', { socketId: socket.id, userId: leaverUserId, userName: leaverName });
+    socket.to(meetingId).emit('webrtc-peer-left', { socketId: socket.id, userId: leaverUserId, userName: leaverName });
   });
 
   // ── WebRTC Signaling ──────────────────────────────────────────
   // Step 1: New user announces they are in the room
   // Server relays to ALL existing peers so they can start offers
   socket.on('webrtc-join-room', ({ meetingId, userId, userName }) => {
+    if (!meetingActiveUsers.has(meetingId)) {
+      meetingActiveUsers.set(meetingId, new Map());
+    }
+    meetingActiveUsers.get(meetingId).set(socket.id, {
+      socketId: socket.id,
+      userId,
+      userName,
+    });
+    socketMeetingMap.set(socket.id, meetingId);
+
     socket.to(meetingId).emit('webrtc-new-peer', {
       socketId: socket.id,
       userId,
       userName,
     });
+    broadcastActiveParticipants(meetingId);
     console.log(`[WebRTC] ${userName} (${socket.id}) joined room ${meetingId}`);
   });
 
@@ -220,12 +274,14 @@ io.on('connection', (socket) => {
   // ── Disconnect ────────────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
-    // Notify meeting peers if socket disconnects unexpectedly
     const meetingId = socketMeetingMap.get(socket.id);
     if (meetingId) {
-      socket.to(meetingId).emit('user-left', socket.id);
-      socket.to(meetingId).emit('webrtc-peer-left', { socketId: socket.id });
+      const info = removeActiveUser(socket.id);
       socketMeetingMap.delete(socket.id);
+      const leaverName = info?.removedUser?.userName;
+      const leaverUserId = info?.removedUser?.userId;
+      socket.to(meetingId).emit('user-left', { socketId: socket.id, userId: leaverUserId, userName: leaverName });
+      socket.to(meetingId).emit('webrtc-peer-left', { socketId: socket.id, userId: leaverUserId, userName: leaverName });
     }
   });
 });

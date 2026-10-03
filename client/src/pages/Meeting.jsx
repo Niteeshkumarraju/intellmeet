@@ -42,6 +42,8 @@ export default function Meeting() {
   const [pinnedId, setPinnedId] = useState('local')
   const [speakingId, setSpeakingId] = useState('local')
   const [screenShareCount, setScreenShareCount] = useState(0)
+  const [activeRoomUsers, setActiveRoomUsers] = useState([]) // [{ socketId, userId, userName }]
+  const activeRoomUsersRef = useRef([])
 
   // Profile, Projects & Task Assignment States
   const [profileMember, setProfileMember] = useState(null)
@@ -737,7 +739,11 @@ export default function Meeting() {
 
   const setupSocket = () => {
     socketRef.current = io(import.meta.env.VITE_API_URL || 'http://localhost:5000')
-    socketRef.current.emit('join-meeting', id)
+    socketRef.current.emit('join-meeting', {
+      meetingId: id,
+      userId: user?.id,
+      userName: user?.name || 'User',
+    })
 
     // ── Announce WebRTC presence to existing peers ─────────────────────
     // Send after a brief delay so join-meeting room is established first
@@ -838,8 +844,15 @@ export default function Meeting() {
       }
     })
 
+    // ── Active participants list from server (ground truth of who is in the room) ──
+    socketRef.current.on('active-participants', (users) => {
+      setActiveRoomUsers(users || [])
+      activeRoomUsersRef.current = users || []
+    })
+
     // ── WebRTC: A peer left ──────────────────────────────────
-    socketRef.current.on('webrtc-peer-left', ({ socketId }) => {
+    socketRef.current.on('webrtc-peer-left', (data) => {
+      const socketId = typeof data === 'object' ? data.socketId : data
       if (screenSharerRef.current && screenSharerRef.current.socketId === socketId) {
         setScreenSharer(null)
         screenSharerRef.current = null
@@ -847,6 +860,16 @@ export default function Meeting() {
         toast('Screen sharing ended')
       }
       removePeer(socketId)
+      setActiveRoomUsers(prev => prev.filter(u => u.socketId !== socketId))
+      activeRoomUsersRef.current = activeRoomUsersRef.current.filter(u => u.socketId !== socketId)
+      setPinnedId(prev => (prev === socketId ? 'local' : prev))
+      if (typeof data === 'object' && data.userId) {
+        setRaisedHands(prev => {
+          const next = { ...prev }
+          delete next[data.userId]
+          return next
+        })
+      }
     })
 
     socketRef.current.on('receive-message', (data) => {
@@ -903,33 +926,49 @@ export default function Meeting() {
       }
     });
 
-    socketRef.current.on('user-joined', () => {
+    socketRef.current.on('user-joined', (data) => {
+      const joinerName = (typeof data === 'object' && data.userName) ? data.userName : 'Someone'
       toast.custom(() => (
         <div style={{ background:'#1e2d4a', border:'1px solid rgba(99,102,241,0.5)', borderRadius:14, padding:'12px 18px', display:'flex', alignItems:'center', gap:12, fontFamily:'DM Sans', boxShadow:'0 8px 32px rgba(0,0,0,0.5)', minWidth:280 }}>
           <div style={{ width:38, height:38, background:'linear-gradient(135deg,#4f46e5,#7c3aed)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>👤</div>
           <div>
-            <div style={{ color:'white', fontSize:13, fontWeight:700 }}>Someone joined the meeting</div>
+            <div style={{ color:'white', fontSize:13, fontWeight:700 }}>{joinerName} joined the meeting</div>
             <div style={{ color:'rgba(255,255,255,0.5)', fontSize:11, marginTop:2 }}>They can now see and hear everyone</div>
           </div>
         </div>
       ), { duration:3000, position:'top-center' })
-      axios.get(`/api/meetings/${id}`, { headers }).then(({ data }) => setParticipants(data.participants || []))
     })
 
-    socketRef.current.on('user-left', (socketId) => {
+    socketRef.current.on('user-left', (data) => {
+      const socketId = typeof data === 'object' ? data.socketId : data
+      const leaverName = (typeof data === 'object' && data.userName)
+        ? data.userName
+        : (remoteStreamsRef.current[socketId]?.name || activeRoomUsersRef.current.find(u => u.socketId === socketId)?.userName || 'A participant')
+
       if (screenSharerRef.current && screenSharerRef.current.socketId === socketId) {
         setScreenSharer(null)
         screenSharerRef.current = null
         setScreenShareCount(0)
         toast('Screen sharing ended')
       }
+      removePeer(socketId)
+      setActiveRoomUsers(prev => prev.filter(u => u.socketId !== socketId))
+      activeRoomUsersRef.current = activeRoomUsersRef.current.filter(u => u.socketId !== socketId)
+      setPinnedId(prev => (prev === socketId ? 'local' : prev))
+      if (typeof data === 'object' && data.userId) {
+        setRaisedHands(prev => {
+          const next = { ...prev }
+          delete next[data.userId]
+          return next
+        })
+      }
+
       toast.custom(() => (
         <div style={{ background:'#1e2d4a', border:'1px solid rgba(239,68,68,0.4)', borderRadius:14, padding:'12px 18px', display:'flex', alignItems:'center', gap:12, fontFamily:'DM Sans', boxShadow:'0 8px 32px rgba(0,0,0,0.5)' }}>
           <div style={{ width:38, height:38, background:'rgba(239,68,68,0.2)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>👋</div>
-          <div style={{ color:'white', fontSize:13, fontWeight:700 }}>Someone left the meeting</div>
+          <div style={{ color:'white', fontSize:13, fontWeight:700 }}>{leaverName} left the meeting</div>
         </div>
-      ), { duration:2000, position:'top-center' })
-      axios.get(`/api/meetings/${id}`, { headers }).then(({ data }) => setParticipants(data.participants || []))
+      ), { duration:2500, position:'top-center' })
     })
 
     socketRef.current.on('screen-share-changed', (data) => {
@@ -1308,39 +1347,40 @@ export default function Meeting() {
     );
   }
 
-  // Build participant tiles:
+  // Build active participant tiles:
   // - Local user always first
-  // - Remote WebRTC peers (real video) from remoteStreams
-  // - DB participants who don't have a live WebRTC stream (fallback avatar)
-  const rtcSocketIds = Object.keys(remoteStreams)
-  const rtcUserIds = new Set(rtcSocketIds.map(sid => remoteStreams[sid]?.userId).filter(Boolean))
+  // - Remote participants currently connected in the room (via activeRoomUsers or live remoteStreams)
+  // When a user leaves, they are removed from activeRoomUsers and remoteStreams, so they immediately disappear
+  const activeRemoteUsers = (activeRoomUsers.length > 0
+    ? activeRoomUsers.filter(u => u.socketId !== socketRef.current?.id && u.userId !== user?.id)
+    : Object.keys(remoteStreams).map(sid => ({
+        socketId: sid,
+        userName: remoteStreams[sid]?.name,
+        userId: remoteStreams[sid]?.userId,
+      }))
+  ).map(u => ({
+    id: u.socketId,
+    name: u.userName || remoteStreams[u.socketId]?.name || 'Participant',
+    isLocal: false,
+    isHost: u.userId === meeting?.host?._id,
+    isMuted: false,
+    isVideoOff: !remoteStreams[u.socketId]?.stream,
+    rtcStream: remoteStreams[u.socketId]?.stream || null,
+    userId: u.userId,
+  }))
 
   const allParticipants = [
-    { id:'local', name:user?.name, isLocal:true, isHost:meeting?.host?._id===user?.id, isMuted, isVideoOff, rtcStream: null },
-    // Real WebRTC remote peers
-    ...rtcSocketIds.map(sid => ({
-      id: sid,
-      name: remoteStreams[sid]?.name || 'Participant',
-      isLocal: false,
-      isHost: remoteStreams[sid]?.userId === meeting?.host?._id,
-      isMuted: false,
-      isVideoOff: false,
-      rtcStream: remoteStreams[sid]?.stream || null,
-      userId: remoteStreams[sid]?.userId,
-    })),
-    // DB participants without a live stream (offline/no-cam fallback)
-    ...participants
-      .filter(p => p._id !== user?.id && !rtcUserIds.has(p._id))
-      .map(p => ({
-        id: p._id,
-        name: p.name,
-        isLocal: false,
-        isHost: p._id === meeting?.host?._id,
-        isMuted: false,
-        isVideoOff: true,
-        rtcStream: null,
-        userId: p._id,
-      }))
+    { 
+      id: 'local', 
+      name: user?.name, 
+      isLocal: true, 
+      isHost: meeting?.host?._id === user?.id, 
+      isMuted, 
+      isVideoOff, 
+      rtcStream: null,
+      userId: user?.id,
+    },
+    ...activeRemoteUsers
   ]
 
   // Real people count (used for topbar and participants tab)
