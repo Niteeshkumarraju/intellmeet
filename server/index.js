@@ -146,6 +146,10 @@ io.on('connection', (socket) => {
     socket.to(data.meetingId).emit('hand-raise-changed', data);
   });
 
+  socket.on('screen-share-changed', (data) => {
+    socket.to(data.meetingId).emit('screen-share-changed', data);
+  });
+
   socket.on('leave-meeting', (meetingId) => {
     socket.leave(meetingId);
     socketMeetingMap.delete(socket.id);

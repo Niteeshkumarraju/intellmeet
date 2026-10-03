@@ -27,6 +27,9 @@ export default function Meeting() {
   const [isMuted, setIsMuted] = useState(false)
   const [isVideoOff, setIsVideoOff] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
+  const isSharingRef = useRef(false)
+  const [screenSharer, setScreenSharer] = useState(null) // { isLocal: boolean, userId: string, userName: string, socketId: string }
+  const screenSharerRef = useRef(null)
   const [activeTab, setActiveTab] = useState('AI Notes')
   const [summary, setSummary] = useState('')
   const [actionItems, setActionItems] = useState([])
@@ -99,10 +102,19 @@ export default function Meeting() {
     pendingCandidatesRef.current[socketId] = []
 
     // Add local tracks to peer connection
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        pc.addTrack(track, streamRef.current)
-      })
+    const audioTrack = streamRef.current?.getAudioTracks()[0]
+    const videoTrack = (isSharingRef.current && screenStreamRef.current)
+      ? screenStreamRef.current.getVideoTracks()[0]
+      : streamRef.current?.getVideoTracks()[0]
+
+    if (audioTrack && streamRef.current) {
+      pc.addTrack(audioTrack, streamRef.current)
+    }
+    if (videoTrack) {
+      const parentStream = (isSharingRef.current && screenStreamRef.current)
+        ? screenStreamRef.current
+        : streamRef.current
+      pc.addTrack(videoTrack, parentStream)
     }
 
     // When we receive remote track, store the stream
@@ -167,6 +179,39 @@ export default function Meeting() {
     peerConnectionsRef.current = {}
     remoteStreamsRef.current = {}
     setRemoteStreams({})
+  }
+
+  // Replace video track across all active RTCPeerConnections
+  const replaceVideoTrackOnAllPeers = async (newTrack) => {
+    for (const [peerSocketId, pc] of Object.entries(peerConnectionsRef.current)) {
+      if (!pc || pc.signalingState === 'closed') continue
+      try {
+        const transceivers = pc.getTransceivers ? pc.getTransceivers() : []
+        const videoTransceiver = transceivers.find(t =>
+          (t.sender && t.sender.track && t.sender.track.kind === 'video') ||
+          (t.receiver && t.receiver.track && t.receiver.track.kind === 'video')
+        )
+        const videoSender = videoTransceiver?.sender || pc.getSenders().find(s => s.track && s.track.kind === 'video')
+
+        if (videoSender) {
+          await videoSender.replaceTrack(newTrack)
+        } else if (newTrack) {
+          pc.addTrack(newTrack, screenStreamRef.current || streamRef.current)
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          if (socketRef.current) {
+            socketRef.current.emit('webrtc-offer', {
+              to: peerSocketId,
+              from: socketRef.current.id,
+              offer,
+              userName: user?.name,
+            })
+          }
+        }
+      } catch (err) {
+        console.error(`[WebRTC] Failed to replace video track for peer ${peerSocketId}:`, err)
+      }
+    }
   }
 
   // Recording handler
@@ -477,7 +522,7 @@ export default function Meeting() {
         localVideoRef.current.srcObject = streamRef.current
       }
     }
-  }, [isVideoOff, pinnedId, showWhiteboard, meeting])
+  }, [isVideoOff, screenSharer, pinnedId, showWhiteboard, meeting])
 
   // Sync screen-share video element
   useEffect(() => {
@@ -488,7 +533,7 @@ export default function Meeting() {
         localScreenVideoRef.current.srcObject = null
       }
     }
-  }, [isSharing, pinnedId, showWhiteboard, meeting])
+  }, [isSharing, screenSharer, pinnedId, showWhiteboard, meeting])
 
   const formatTime = (s) => `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
 
@@ -719,6 +764,16 @@ export default function Meeting() {
           offer,
           userName: user?.name,
         })
+        // If we are currently sharing screen, inform the new peer
+        if (isSharingRef.current) {
+          socketRef.current.emit('screen-share-changed', {
+            meetingId: id,
+            isSharing: true,
+            userId: user?.id,
+            userName: user?.name,
+            socketId: socketRef.current.id,
+          })
+        }
       } catch (err) {
         console.error('[WebRTC] Failed to create offer:', err)
       }
@@ -737,6 +792,15 @@ export default function Meeting() {
           answer,
         })
         await processQueuedCandidates(from)
+        if (isSharingRef.current) {
+          socketRef.current.emit('screen-share-changed', {
+            meetingId: id,
+            isSharing: true,
+            userId: user?.id,
+            userName: user?.name,
+            socketId: socketRef.current.id,
+          })
+        }
       } catch (err) {
         console.error('[WebRTC] Failed to handle offer:', err)
       }
@@ -776,6 +840,12 @@ export default function Meeting() {
 
     // ── WebRTC: A peer left ──────────────────────────────────
     socketRef.current.on('webrtc-peer-left', ({ socketId }) => {
+      if (screenSharerRef.current && screenSharerRef.current.socketId === socketId) {
+        setScreenSharer(null)
+        screenSharerRef.current = null
+        setScreenShareCount(0)
+        toast('Screen sharing ended')
+      }
       removePeer(socketId)
     })
 
@@ -846,7 +916,13 @@ export default function Meeting() {
       axios.get(`/api/meetings/${id}`, { headers }).then(({ data }) => setParticipants(data.participants || []))
     })
 
-    socketRef.current.on('user-left', () => {
+    socketRef.current.on('user-left', (socketId) => {
+      if (screenSharerRef.current && screenSharerRef.current.socketId === socketId) {
+        setScreenSharer(null)
+        screenSharerRef.current = null
+        setScreenShareCount(0)
+        toast('Screen sharing ended')
+      }
       toast.custom(() => (
         <div style={{ background:'#1e2d4a', border:'1px solid rgba(239,68,68,0.4)', borderRadius:14, padding:'12px 18px', display:'flex', alignItems:'center', gap:12, fontFamily:'DM Sans', boxShadow:'0 8px 32px rgba(0,0,0,0.5)' }}>
           <div style={{ width:38, height:38, background:'rgba(239,68,68,0.2)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>👋</div>
@@ -855,9 +931,51 @@ export default function Meeting() {
       ), { duration:2000, position:'top-center' })
       axios.get(`/api/meetings/${id}`, { headers }).then(({ data }) => setParticipants(data.participants || []))
     })
+
+    socketRef.current.on('screen-share-changed', (data) => {
+      if (data.isSharing) {
+        const sharerInfo = {
+          isLocal: data.socketId === socketRef.current?.id,
+          userId: data.userId,
+          userName: data.userName,
+          socketId: data.socketId,
+        }
+        setScreenSharer(sharerInfo)
+        screenSharerRef.current = sharerInfo
+        setScreenShareCount(1)
+        if (data.socketId !== socketRef.current?.id) {
+          toast(`${data.userName || 'A participant'} started presenting their screen`, {
+            icon: '🖥️',
+            duration: 3000,
+          })
+        }
+      } else {
+        if (screenSharerRef.current?.socketId === data.socketId || screenSharerRef.current?.userId === data.userId) {
+          const prevName = screenSharerRef.current?.userName
+          setScreenSharer(null)
+          screenSharerRef.current = null
+          setScreenShareCount(0)
+          if (data.socketId !== socketRef.current?.id) {
+            toast(`${prevName || 'Presenter'} stopped presenting`, {
+              icon: '🖥️',
+              duration: 2500,
+            })
+          }
+        }
+      }
+    })
   }
 
   const cleanup = () => {
+    if (isSharingRef.current && socketRef.current) {
+      socketRef.current.emit('screen-share-changed', {
+        meetingId: id,
+        isSharing: false,
+        userId: user?.id,
+        userName: user?.name,
+        socketId: socketRef.current.id,
+      })
+    }
     if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
     if (screenStreamRef.current) { screenStreamRef.current.getTracks().forEach(t => t.stop()); screenStreamRef.current = null }
     if (socketRef.current) {
@@ -897,44 +1015,100 @@ export default function Meeting() {
     toast.success(nextVideoOff ? 'Camera turned OFF' : 'Camera turned ON')
   }
 
+  const stopScreenShare = async () => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(t => t.stop())
+      screenStreamRef.current = null
+    }
+
+    if (localScreenVideoRef.current) {
+      localScreenVideoRef.current.srcObject = null
+    }
+
+    // Revert video track on all peers to camera track (or null)
+    const cameraTrack = streamRef.current ? streamRef.current.getVideoTracks()[0] : null
+    if (cameraTrack) {
+      cameraTrack.enabled = !isVideoOff
+    }
+    await replaceVideoTrackOnAllPeers(cameraTrack || null)
+
+    // Restore local camera video element
+    if (localVideoRef.current && streamRef.current && !isVideoOff) {
+      localVideoRef.current.srcObject = streamRef.current
+    }
+
+    setIsSharing(false)
+    isSharingRef.current = false
+    setScreenSharer(null)
+    screenSharerRef.current = null
+    setScreenShareCount(0)
+
+    if (socketRef.current) {
+      socketRef.current.emit('screen-share-changed', {
+        meetingId: id,
+        isSharing: false,
+        userId: user?.id,
+        userName: user?.name,
+        socketId: socketRef.current.id,
+      })
+    }
+  }
+
   const toggleScreenShare = async () => {
     if (isSharing) {
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach(t => t.stop())
-        screenStreamRef.current = null
-      }
-      // Detach the screen video element
-      if (localScreenVideoRef.current) {
-        localScreenVideoRef.current.srcObject = null
-      }
-      setIsSharing(false)
-      setScreenShareCount(0)
-      // Restore local camera if it was on before sharing
-      if (!isVideoOff && streamRef.current && localVideoRef.current) {
-        localVideoRef.current.srcObject = streamRef.current
-      }
+      await stopScreenShare()
       toast.success('Screen sharing stopped')
     } else {
-      if (screenShareCount > 0) { toast.error('Screen share already active'); return }
+      if (screenSharer && !screenSharer.isLocal) {
+        toast.error(`${screenSharer.userName || 'Another participant'} is already sharing screen`)
+        return
+      }
       try {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
         screenStreamRef.current = screenStream
+        const screenVideoTrack = screenStream.getVideoTracks()[0]
+
         if (localScreenVideoRef.current) {
           localScreenVideoRef.current.srcObject = screenStream
         }
+
+        // Replace track across all peers
+        await replaceVideoTrackOnAllPeers(screenVideoTrack)
+
         setIsSharing(true)
-        setScreenShareCount(1)
-        screenStream.getVideoTracks()[0].onended = () => {
-          if (localScreenVideoRef.current) localScreenVideoRef.current.srcObject = null
-          screenStreamRef.current = null
-          setIsSharing(false)
-          setScreenShareCount(0)
-          // Restore camera after screen share ends
-          if (!isVideoOff && streamRef.current && localVideoRef.current) {
-            localVideoRef.current.srcObject = streamRef.current
-          }
+        isSharingRef.current = true
+        const sharerInfo = {
+          isLocal: true,
+          userId: user?.id,
+          userName: user?.name,
+          socketId: socketRef.current?.id,
         }
-      } catch { toast.error('Screen share cancelled') }
+        setScreenSharer(sharerInfo)
+        screenSharerRef.current = sharerInfo
+        setScreenShareCount(1)
+
+        // Broadcast to other participants
+        if (socketRef.current) {
+          socketRef.current.emit('screen-share-changed', {
+            meetingId: id,
+            isSharing: true,
+            userId: user?.id,
+            userName: user?.name,
+            socketId: socketRef.current.id,
+          })
+        }
+
+        toast.success('You are now sharing your screen')
+
+        // Handle user stopping screen share via browser's native stop button
+        screenVideoTrack.onended = async () => {
+          await stopScreenShare()
+          toast.success('Screen sharing ended')
+        }
+      } catch (err) {
+        console.error('Screen share error:', err)
+        toast.error('Screen share cancelled or not allowed')
+      }
     }
   }
 
@@ -1538,31 +1712,74 @@ export default function Meeting() {
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#0d1117' }}>
 
           {/* SCREEN SHARE LAYOUT — screen fills main view, participants in sidebar */}
-          {isSharing ? (
+          {screenSharer ? (
             <div style={{ flex:1, display:'flex', gap:8, padding:'12px', overflow:'hidden' }}>
               {/* Screen share main view */}
-              <div style={{ flex:1, position:'relative', borderRadius:16, overflow:'hidden', background:'#0a1628' }}>
-                <video ref={localScreenVideoRef} autoPlay muted playsInline style={{ width:'100%', height:'100%', objectFit:'contain', background:'#000' }} />
-                {/* Presenting banner */}
-                <div style={{ position:'absolute', bottom:16, left:'50%', transform:'translateX(-50%)', background:'rgba(16,185,129,0.9)', backdropFilter:'blur(8px)', border:'1px solid rgba(16,185,129,0.2)', padding:'6px 16px', borderRadius:20, fontSize:12, fontWeight:700, color:'white', display:'flex', alignItems:'center', gap:6, zIndex:10, whiteSpace:'nowrap' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                  You are presenting your screen
-                </div>
-                {/* Stop button top-right */}
-                <button onClick={toggleScreenShare} style={{ position:'absolute', top:14, right:14, background:'#ef4444', border:'none', color:'white', padding:'6px 14px', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer', zIndex:20, fontFamily:'DM Sans' }}>Stop Presenting</button>
+              <div style={{ flex:1, position:'relative', borderRadius:16, overflow:'hidden', background:'#0a1628', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {screenSharer.isLocal ? (
+                  <>
+                    <video
+                      ref={(el) => {
+                        localScreenVideoRef.current = el
+                        if (el && screenStreamRef.current) el.srcObject = screenStreamRef.current
+                      }}
+                      autoPlay
+                      muted
+                      playsInline
+                      style={{ width:'100%', height:'100%', objectFit:'contain', background:'#000' }}
+                    />
+                    {/* Presenting banner */}
+                    <div style={{ position:'absolute', bottom:16, left:'50%', transform:'translateX(-50%)', background:'rgba(16,185,129,0.9)', backdropFilter:'blur(8px)', border:'1px solid rgba(16,185,129,0.2)', padding:'6px 16px', borderRadius:20, fontSize:12, fontWeight:700, color:'white', display:'flex', alignItems:'center', gap:6, zIndex:10, whiteSpace:'nowrap' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                      You are presenting your screen
+                    </div>
+                    {/* Stop button top-right */}
+                    <button onClick={toggleScreenShare} style={{ position:'absolute', top:14, right:14, background:'#ef4444', border:'none', color:'white', padding:'6px 14px', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer', zIndex:20, fontFamily:'DM Sans' }}>Stop Presenting</button>
+                  </>
+                ) : (
+                  <>
+                    {remoteStreams[screenSharer.socketId]?.stream ? (
+                      <RemoteVideoTile
+                        key={`screen-${screenSharer.socketId}`}
+                        stream={remoteStreams[screenSharer.socketId].stream}
+                        style={{ width:'100%', height:'100%', objectFit:'contain', background:'#000' }}
+                      />
+                    ) : (
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12, color:'rgba(255,255,255,0.7)' }}>
+                        <div style={{ width:36, height:36, border:'3px solid rgba(255,255,255,0.2)', borderTopColor:'#6366f1', borderRadius:'50%', animation:'spin 1s linear infinite' }} />
+                        <span style={{ fontSize:14, fontWeight:600 }}>Connecting to {screenSharer.userName}'s screen...</span>
+                      </div>
+                    )}
+                    {/* Presenting banner */}
+                    <div style={{ position:'absolute', bottom:16, left:'50%', transform:'translateX(-50%)', background:'rgba(16,185,129,0.9)', backdropFilter:'blur(8px)', border:'1px solid rgba(16,185,129,0.2)', padding:'6px 16px', borderRadius:20, fontSize:12, fontWeight:700, color:'white', display:'flex', alignItems:'center', gap:6, zIndex:10, whiteSpace:'nowrap' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                      {screenSharer.userName} is presenting their screen
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Participants sidebar (real people only, no screen tile) */}
               <div style={{ width:150, display:'flex', flexDirection:'column', gap:8, overflowY:'auto' }}>
                 {allParticipants.map((p, i) => {
                   const isHandRaised = p.isLocal ? raiseHand : !!raisedHands[p.id];
+                  const isThisPresenter = (!p.isLocal && p.id === screenSharer.socketId) || (!p.isLocal && p.userId && p.userId === screenSharer.userId);
                   return (
                     <div key={p.id} className={`thumb-tile ${speakingId===p.id?'speaking':''}`}
                       style={{ height:110, background:`linear-gradient(135deg,hsl(${i*60+180},35%,12%),hsl(${i*60+200},35%,18%))` }}>
                       <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
                         {p.isLocal ? (
                           <>
-                            <video ref={localVideoRef} autoPlay muted playsInline style={{ width:'100%', height:'100%', objectFit:'cover', display:isVideoOff?'none':'block' }} />
+                            <video
+                              ref={(el) => {
+                                localVideoRef.current = el
+                                if (el && streamRef.current && !isVideoOff) el.srcObject = streamRef.current
+                              }}
+                              autoPlay
+                              muted
+                              playsInline
+                              style={{ width:'100%', height:'100%', objectFit:'cover', display:isVideoOff?'none':'block' }}
+                            />
                             {isVideoOff && (
                               <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
                                 <div style={{ width:44, height:44, background:'linear-gradient(135deg,#4f46e5,#7c3aed)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:18 }}>
@@ -1571,6 +1788,13 @@ export default function Meeting() {
                               </div>
                             )}
                           </>
+                        ) : isThisPresenter ? (
+                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                            <div style={{ width:40, height:40, background:'linear-gradient(135deg,#10b981,#059669)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>
+                              🖥️
+                            </div>
+                            <span style={{ fontSize:10, color:'#34d399', fontWeight:700 }}>Presenting</span>
+                          </div>
                         ) : (
                           // Remote participant: show real video if WebRTC stream available
                           p.rtcStream ? (
@@ -1587,6 +1811,7 @@ export default function Meeting() {
                         {p.name?.split(' ')[0]}
                         {p.isHost && <span style={{ background:'#6366f1', fontSize:8, padding:'1px 4px', borderRadius:3 }}>H</span>}
                         {p.isLocal && <span style={{ fontSize:8, color:'rgba(255,255,255,0.4)', marginLeft:2 }}>(You)</span>}
+                        {isThisPresenter && <span style={{ fontSize:8, color:'#34d399', marginLeft:2 }}>🖥️</span>}
                       </div>
                       {isHandRaised && <div style={{ position:'absolute', top:4, left:4, fontSize:14, zIndex:10 }}>✋</div>}
                     </div>
@@ -2041,7 +2266,7 @@ export default function Meeting() {
           {/* Participants */}
           {activeTab==='Participants' && (
             <div style={{ flex:1, overflowY:'auto', padding:'14px 16px' }}>
-              <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)', marginBottom:12 }}>{realParticipantCount} in this meeting{isSharing && <span style={{ marginLeft:8, color:'#4ade80', fontSize:11 }}>● You are presenting</span>}</div>
+              <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)', marginBottom:12 }}>{realParticipantCount} in this meeting{screenSharer && <span style={{ marginLeft:8, color:'#4ade80', fontSize:11 }}>● {screenSharer.isLocal ? 'You are presenting' : `${screenSharer.userName} is presenting`}</span>}</div>
               {allParticipants.map((p,i) => (
                 <div key={p.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:p.isHost?'rgba(99,102,241,0.1)':'rgba(255,255,255,0.03)', border:`1px solid ${p.isHost?'rgba(99,102,241,0.2)':'rgba(255,255,255,0.05)'}`, borderRadius:12, marginBottom:8, cursor:'pointer', transition:'background 0.2s' }}
                   onClick={() => { setPinnedId(p.isLocal?'local':p.id); setActiveTab('AI Notes') }}>
@@ -2205,7 +2430,11 @@ export default function Meeting() {
             <span className="ctrl-icon">{isVideoOff?'📷':'📹'}</span>
             {isVideoOff?'Start Video':'Camera'}
           </button>
-          <button className={`ctrl-btn ${isSharing?'sharing':''}`} onClick={toggleScreenShare}>
+          <button
+            className={`ctrl-btn ${isSharing?'sharing':''}`}
+            onClick={toggleScreenShare}
+            title={screenSharer && !screenSharer.isLocal ? `${screenSharer.userName} is already sharing screen` : ''}
+          >
             <span className="ctrl-icon">🖥️</span>
             {isSharing?'Stop Share':'Share Screen'}
           </button>
@@ -2272,11 +2501,18 @@ function RemoteVideoTile({ stream, style, className }) {
   useEffect(() => {
     if (ref.current && stream) {
       ref.current.srcObject = stream
+      ref.current.play().catch(() => {})
     }
   }, [stream])
   return (
     <video
-      ref={ref}
+      ref={(el) => {
+        ref.current = el
+        if (el && stream) {
+          el.srcObject = stream
+          el.play().catch(() => {})
+        }
+      }}
       autoPlay
       playsInline
       style={style || { width: '100%', height: '100%', objectFit: 'cover' }}
